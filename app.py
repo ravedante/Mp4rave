@@ -3,17 +3,16 @@ import requests
 
 app = Flask(__name__)
 
-# Substitua pelo template do link streaming MP4 do seu PeerTube,
-# coloque {id} onde deve entrar o ID do vídeo
-VIDEO_URL_TEMPLATE = "https://seu-peertube.com/videos/watch/{id}/video.mp4"
+# Link base do PeerTube
+BASE_URL = "https://tube.xy-space.de/static/web-videos/"
 
 @app.route('/')
 def home():
     return jsonify({"status": "online"})
 
-@app.route('/video/<video_id>')
-def proxy_video(video_id):
-    video_url = VIDEO_URL_TEMPLATE.format(id=video_id)
+@app.route('/video/<path:video_filename>')
+def proxy_video(video_filename):
+    video_url = BASE_URL + video_filename
 
     headers = {}
     if 'Range' in request.headers:
