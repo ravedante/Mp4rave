@@ -1,5 +1,5 @@
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 import httpx
 import re
 
@@ -9,26 +9,26 @@ app = FastAPI()
 def home():
     return {"status": "online"}
 
-@app.get("/video/{mediafire_id}")
-async def get_mediafire_direct_link(mediafire_id: str):
-    """
-    Ex: /video/abc123456filename
-    Onde 'abc123456filename' vem da URL: https://www.mediafire.com/file/abc123456filename
-    """
-    base_url = f"https://www.mediafire.com/file/{mediafire_id}"
-
+@app.get("/video/{file_id}")
+async def get_video(file_id: str):
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(base_url)
+        # Monta a URL da página do MediaFire com base no ID fornecido
+        mediafire_url = f"https://www.mediafire.com/file/{file_id}"
 
-        # Expressão regular para pegar o link direto real
-        match = re.search(r'https://download[^"]+', response.text)
+        # Faz a requisição HTTP simulando um navegador
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+            response = await client.get(mediafire_url)
 
-        if match:
-            direct_link = match.group(0)
-            return RedirectResponse(url=direct_link)
-        else:
-            return JSONResponse({"error": "Não foi possível encontrar o link direto."}, status_code=404)
+        if response.status_code != 200:
+            raise HTTPException(status_code=404, detail="Arquivo não encontrado no MediaFire")
+
+        # Procura o link de download direto no HTML da página
+        match = re.search(r'href="(https://download[^"]+)"', response.text)
+        if not match:
+            raise HTTPException(status_code=404, detail="Link de download direto não encontrado")
+
+        download_link = match.group(1)
+        return RedirectResponse(url=download_link)
 
     except Exception as e:
-        return JSONResponse({"error": f"Erro ao acessar o link: {str(e)}"}, status_code=500)
+        raise HTTPException(status_code=500, detail=f"Erro interno: {e}")
