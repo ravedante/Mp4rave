@@ -1,56 +1,58 @@
-from fastapi import FastAPI, Request, HTTPException, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, Request, Response, Header, HTTPException
+from fastapi.responses import StreamingResponse, JSONResponse
 import httpx
-import asyncio
 
 app = FastAPI()
 
 API_KEY = "AIzaSyBh-bBd24d6v3yYkALQg61ezICshu61Gv4"
 
-@app.get("/", response_class=JSONResponse)
-async def root():
+@app.get("/")
+def home():
     return {"status": "online"}
 
+# Rota tradicional
 @app.get("/video/{file_id}")
-async def stream_video(request: Request, file_id: str):
+async def stream_video(request: Request, file_id: str, range: str = Header(None)):
+    return await stream_from_drive(file_id, range)
+
+# Rota estilo Google Drive: /video/d/{id}
+@app.get("/video/d/{file_id}")
+async def stream_video_drive_style(request: Request, file_id: str, range: str = Header(None)):
+    return await stream_from_drive(file_id, range)
+
+async def stream_from_drive(file_id: str, range: str = None):
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
 
     headers = {}
-    range_header = request.headers.get("range")
-    if range_header:
-        headers["Range"] = range_header
+    if range:
+        headers["Range"] = range
 
-    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        try:
-            resp = await client.get(url, headers=headers)
-        except httpx.RequestError:
-            raise HTTPException(status_code=503, detail="Erro ao conectar ao Google Drive")
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            r = await client.get(url, headers=headers)
+            if r.status_code not in [200, 206]:
+                raise HTTPException(status_code=r.status_code, detail="Erro ao acessar o vídeo no Google Drive")
 
-    if resp.status_code == 404:
-        raise HTTPException(status_code=404, detail="Vídeo não encontrado")
-    elif resp.status_code == 403:
-        raise HTTPException(status_code=403, detail="Acesso negado ao vídeo")
-    elif resp.status_code not in (200, 206):
-        raise HTTPException(status_code=resp.status_code, detail="Erro ao obter vídeo")
+            content_length = r.headers.get("Content-Length")
+            content_range = r.headers.get("Content-Range", None)
+            status_code = 206 if range else 200
 
-    content_length = resp.headers.get("Content-Length")
-    content_type = resp.headers.get("Content-Type", "video/mp4")
-    content_range = resp.headers.get("Content-Range")
+            response_headers = {
+                "Content-Type": "video/mp4",
+                "Content-Length": content_length or str(len(r.content)),
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=31536000",  # Cache por 1 ano
+                "Content-Disposition": f"attachment; filename={file_id}.mp4"
+            }
 
-    # Headers para resposta ao cliente
-    response_headers = {
-        "Content-Type": content_type,
-        "Cache-Control": "public, max-age=31536000",
-        "Accept-Ranges": "bytes",
-    }
-    if content_range:
-        response_headers["Content-Range"] = content_range
-    if content_length:
-        response_headers["Content-Length"] = content_length
+            if content_range:
+                response_headers["Content-Range"] = content_range
 
-    async def video_iterator():
-        async for chunk in resp.aiter_bytes(chunk_size=1024*1024):
-            yield chunk
-            await asyncio.sleep(0)
+            return StreamingResponse(
+                iter([r.content]),
+                status_code=status_code,
+                headers=response_headers
+            )
 
-    return StreamingResponse(video_iterator(), status_code=resp.status_code, headers=response_headers)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
