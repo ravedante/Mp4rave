@@ -1,6 +1,5 @@
-from fastapi import FastAPI, Request, Response, Header, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse
-import httpx
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 app = FastAPI()
 
@@ -10,49 +9,38 @@ API_KEY = "AIzaSyBh-bBd24d6v3yYkALQg61ezICshu61Gv4"
 def home():
     return {"status": "online"}
 
-# Rota tradicional
-@app.get("/video/{file_id}")
-async def stream_video(request: Request, file_id: str, range: str = Header(None)):
-    return await stream_from_drive(file_id, range)
+@app.get("/video/{file_id}", response_class=HTMLResponse)
+def intermediate_download_page(file_id: str, request: Request):
+    # Adiciona parâmetro fake para camuflar o tráfego
+    fake_param = "utm=" + request.client.host.replace(".", "")[-4:]
+    drive_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}&{fake_param}"
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="refresh" content="3;url={drive_url}">
+        <title>Preparando download...</title>
+    </head>
+    <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+        <h2>Aguarde um momento...</h2>
+        <p>Seu vídeo está sendo preparado. O download começará em instantes.</p>
+        <p><a href="{drive_url}" download>Clique aqui se não for redirecionado</a></p>
+    </body>
+    </html>
+    """
+    
+    headers = {
+        "Cache-Control": "public, max-age=86400",  # 1 dia de cache
+        "Content-Type": "text/html; charset=UTF-8"
+    }
+    
+    return HTMLResponse(content=html_content, headers=headers)
 
-# Rota estilo Google Drive: /video/d/{id}
 @app.get("/video/d/{file_id}")
-async def stream_video_drive_style(request: Request, file_id: str, range: str = Header(None)):
-    return await stream_from_drive(file_id, range)
-
-async def stream_from_drive(file_id: str, range: str = None):
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}"
-
-    headers = {}
-    if range:
-        headers["Range"] = range
-
-    try:
-        async with httpx.AsyncClient(timeout=None) as client:
-            r = await client.get(url, headers=headers)
-            if r.status_code not in [200, 206]:
-                raise HTTPException(status_code=r.status_code, detail="Erro ao acessar o vídeo no Google Drive")
-
-            content_length = r.headers.get("Content-Length")
-            content_range = r.headers.get("Content-Range", None)
-            status_code = 206 if range else 200
-
-            response_headers = {
-                "Content-Type": "video/mp4",
-                "Content-Length": content_length or str(len(r.content)),
-                "Accept-Ranges": "bytes",
-                "Cache-Control": "public, max-age=31536000",  # Cache por 1 ano
-                "Content-Disposition": f"attachment; filename={file_id}.mp4"
-            }
-
-            if content_range:
-                response_headers["Content-Range"] = content_range
-
-            return StreamingResponse(
-                iter([r.content]),
-                status_code=status_code,
-                headers=response_headers
-            )
-
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+def legacy_redirect(file_id: str, request: Request):
+    fake_param = "ref=" + request.client.host.replace(".", "")[-4:]
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}&{fake_param}"
+    headers = {"Cache-Control": "public, max-age=86400"}
+    return RedirectResponse(url=url, status_code=307, headers=headers)
