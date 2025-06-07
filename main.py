@@ -1,46 +1,34 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI
+from fastapi.responses import RedirectResponse, JSONResponse
+import httpx
+import re
 
 app = FastAPI()
-
-API_KEY = "AIzaSyBh-bBd24d6v3yYkALQg61ezICshu61Gv4"
 
 @app.get("/")
 def home():
     return {"status": "online"}
 
-@app.get("/video/{file_id}", response_class=HTMLResponse)
-def intermediate_download_page(file_id: str, request: Request):
-    # Adiciona parâmetro fake para camuflar o tráfego
-    fake_param = "utm=" + request.client.host.replace(".", "")[-4:]
-    drive_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}&{fake_param}"
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta http-equiv="refresh" content="3;url={drive_url}">
-        <title>Preparando download...</title>
-    </head>
-    <body style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-        <h2>Aguarde um momento...</h2>
-        <p>Seu vídeo está sendo preparado. O download começará em instantes.</p>
-        <p><a href="{drive_url}" download>Clique aqui se não for redirecionado</a></p>
-    </body>
-    </html>
+@app.get("/video/{mediafire_id}")
+async def get_mediafire_direct_link(mediafire_id: str):
     """
-    
-    headers = {
-        "Cache-Control": "public, max-age=86400",  # 1 dia de cache
-        "Content-Type": "text/html; charset=UTF-8"
-    }
-    
-    return HTMLResponse(content=html_content, headers=headers)
+    Ex: /video/abc123456filename
+    Onde 'abc123456filename' vem da URL: https://www.mediafire.com/file/abc123456filename
+    """
+    base_url = f"https://www.mediafire.com/file/{mediafire_id}"
 
-@app.get("/video/d/{file_id}")
-def legacy_redirect(file_id: str, request: Request):
-    fake_param = "ref=" + request.client.host.replace(".", "")[-4:]
-    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&key={API_KEY}&{fake_param}"
-    headers = {"Cache-Control": "public, max-age=86400"}
-    return RedirectResponse(url=url, status_code=307, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(base_url)
+
+        # Expressão regular para pegar o link direto real
+        match = re.search(r'https://download[^"]+', response.text)
+
+        if match:
+            direct_link = match.group(0)
+            return RedirectResponse(url=direct_link)
+        else:
+            return JSONResponse({"error": "Não foi possível encontrar o link direto."}, status_code=404)
+
+    except Exception as e:
+        return JSONResponse({"error": f"Erro ao acessar o link: {str(e)}"}, status_code=500)
