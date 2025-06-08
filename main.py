@@ -1,30 +1,18 @@
-from flask import Flask, Response, request
-import requests
+from flask import Flask, request, redirect
+import os
 
 app = Flask(__name__)
 
-BASE_URL = "https://cold-na-phx-4.gofile.io/download/web/"
+@app.route("/video/<path:video_id>")
+def stream_proxy(video_id):
+    base_url = "https://cold-na-phx-4.gofile.io/download/web/"
+    video_url = f"{base_url}{video_id}"
+    return redirect(video_url, code=302)
 
-@app.route('/')
-def home():
-    return 'Servidor de streaming ativo no Render!'
+@app.route("/")
+def index():
+    return "🟢 Proxy online e pronto para streaming de vídeos MP4 do Gofile."
 
-@app.route('/video/<path:subpath>')
-def proxy_video(subpath):
-    target_url = BASE_URL + subpath
-    headers = {
-        "User-Agent": request.headers.get("User-Agent"),
-        "Range": request.headers.get("Range")
-    }
-
-    try:
-        resp = requests.get(target_url, headers=headers, stream=True, timeout=10)
-        excluded_headers = ['content-encoding', 'content-length', 'transfer-encoding', 'connection']
-        response_headers = [(name, value) for (name, value) in resp.headers.items() if name.lower() not in excluded_headers]
-
-        return Response(resp.iter_content(chunk_size=8192),
-                        status=resp.status_code,
-                        headers=response_headers,
-                        content_type=resp.headers.get('Content-Type'))
-    except Exception as e:
-        return f"Erro ao acessar o vídeo: {e}", 500
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
