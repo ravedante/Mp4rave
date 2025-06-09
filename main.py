@@ -1,42 +1,58 @@
 import os
-from flask import Flask, send_from_directory, jsonify
+import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from flask import Flask
 from werkzeug.utils import secure_filename
 
-app = Flask(__name__)
-UPLOAD_FOLDER = "downloads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# Configurações fixas do bot
+API_ID = 21545360
+API_HASH = "25343abde47196a7e4accaf9e6b03437"
+BOT_TOKEN = "7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4"
+BASE_URL = "https://mp4rave.onrender.com"
 
-api_id = 21545360
-api_hash = "25343abde47196a7e4accaf9e6b03437"
-bot_token = "7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4"
+# Diretório para salvar vídeos
+VIDEO_DIR = "videos"
+os.makedirs(VIDEO_DIR, exist_ok=True)
 
-bot = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+# Iniciar o bot
+app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-@bot.on_message(filters.video | filters.document)
-async def save_video(client, message: Message):
-    media = message.video or message.document
-    if not media or not media.file_name.endswith(".mp4"):
+# Atender mensagens com vídeo enviado
+@app.on_message(filters.video | filters.document)
+async def salvar_video(client: Client, message: Message):
+    file = message.video or message.document
+    if not file or not file.file_name.endswith(".mp4"):
         await message.reply("❌ Apenas arquivos .mp4 são suportados.")
         return
 
-    file_path = await message.download(file_name=os.path.join(UPLOAD_FOLDER, secure_filename(media.file_name)))
-    file_size = os.path.getsize(file_path) / (1024 * 1024)
-    link = f"https://mp4rave.onrender.com/video/{secure_filename(media.file_name)}"
-    await message.reply(f"✅ Vídeo salvo com sucesso!
+    nome_seguro = secure_filename(file.file_name)
+    caminho = os.path.join(VIDEO_DIR, nome_seguro)
+    await message.reply("⏬ Baixando o vídeo...")
+    await file.download(file_name=caminho)
 
-📁 Nome: `{media.file_name}`
-📦 Tamanho: `{file_size:.2f} MB`
-🔗 Link: {link}", quote=True)
+    # Gerar link
+    link = f"{BASE_URL}/video/{nome_seguro}"
+    tamanho_mb = round(file.file_size / (1024 * 1024), 2)
+    await message.reply(f"✅ Vídeo salvo com sucesso!\n\n📁 Nome: `{file.file_name}`\n📦 Tamanho: `{tamanho_mb} MB`\n🔗 Link: `{link}`")
 
-@app.route("/video/<filename>")
-def serve_video(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename)
+# Flask para servir os vídeos
+web = Flask(__name__)
 
-@app.route("/")
-def home():
-    return "✅ Seu serviço está ativo 🎉"
+@web.route('/')
+def index():
+    return 'Servidor de vídeos ativo!'
 
+@web.route('/video/<nome>')
+def serve_video(nome):
+    return web.send_from_directory(VIDEO_DIR, nome)
+
+# Iniciar tudo
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    import threading
+
+    def iniciar_flask():
+        web.run(host="0.0.0.0", port=10000)
+
+    threading.Thread(target=iniciar_flask).start()
+    app.run()
