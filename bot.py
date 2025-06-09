@@ -11,14 +11,14 @@ BOT_TOKEN = "7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4"
 
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+app = Flask("")
+
 @app.route('/')
 def home():
     return "Bot está online!"
 
 def run():
     app.run(host="0.0.0.0", port=8080)
-
-app = Flask("")
 
 @bot.on_message(filters.video | (filters.document & (filters.private | filters.group)))
 async def handle_video(bot, message: Message):
