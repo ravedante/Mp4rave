@@ -21,9 +21,10 @@ async def handle_video(bot, message: Message):
     base_url = "https://mp4rave.onrender.com/video/"
     direct_link = f"{base_url}{quote(file_name)}"
 
-    await message.reply_text(f"🎬 <b>Nome:</b> <code>{file_name}</code>
-"
-                             f"📥 <b>Link Direto:</b> <a href='{direct_link}'>{direct_link}</a>",
-                             parse_mode="html")
+    await message.reply_text(
+        f"🎞 <b>Nome:</b> <code>{file_name}</code>\n"
+        f"🖜 <b>Link Direto:</b> <a href='{direct_link}'>{direct_link}</a>",
+        parse_mode="html"
+    )
 
 bot.run()
