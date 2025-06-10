@@ -50,7 +50,7 @@ def index():
 # Função assíncrona para iniciar o bot
 async def start_bot():
     async with bot:
-        await asyncio.Event().wait()  # Mantém o bot rodando
+        await asyncio.Event().wait()
 
 # Iniciar o bot em uma thread separada
 def iniciar_thread_bot():
