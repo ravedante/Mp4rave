@@ -1,62 +1,65 @@
 import os
-import logging
-import threading
-import asyncio
-from flask import Flask
+from flask import Flask, send_from_directory
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from threading import Thread
+from urllib.parse import quote
 
+# Dados da sua aplicação Telegram
 API_ID = 21545360
 API_HASH = "25343abde47196a7e4accaf9e6b03437"
 BOT_TOKEN = "7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4"
 
+# Criação do bot Pyrogram
+bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# Inicializa o Flask
 app = Flask(__name__)
-logging.basicConfig(level=logging.INFO)
 
-bot = Client(
-    "bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+# Página principal (teste)
+@app.route('/')
+def home():
+    return '✅ Bot está online!'
 
-def gerar_link_direto(msg: Message):
-    try:
-        file_id = msg.video.file_id if msg.video else msg.document.file_id
-        file_name = msg.video.file_name if msg.video else msg.document.file_name
-        file_size = msg.video.file_size if msg.video else msg.document.file_size
-        tamanho_mb = round(file_size / 1048576, 2)
-        return f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_id}", file_name, tamanho_mb
-    except Exception as e:
-        logging.error(f"Erro ao gerar link direto: {e}")
-        return None, None, None
+# Rota para servir os vídeos
+@app.route('/video/<path:filename>')
+def serve_video(filename):
+    return send_from_directory('./downloads', filename)
 
-@bot.on_message(filters.video | filters.document)
-async def salvar_video(_, message: Message):
-    if message.video or (message.document and message.document.mime_type.startswith("video/")):
-        link, nome, tamanho = gerar_link_direto(message)
-        if link:
-            await message.reply(
-                f"✅ Vídeo salvo com sucesso!\n\n📁 Nome: `{nome}`\n📦 Tamanho: `{tamanho} MB`\n🔗 Link direto: `{link}.mp4`",
-                quote=True
-            )
-        else:
-            await message.reply("❌ Ocorreu um erro ao gerar o link.", quote=True)
+# Thread para manter o Flask rodando
+def run():
+    app.run(host="0.0.0.0", port=8080)
 
-@app.route("/")
-def index():
-    return "Bot está rodando com sucesso!"
+# Inicia a thread do Flask
+Thread(target=run).start()
 
-# Função assíncrona para iniciar o bot
-async def start_bot():
-    async with bot:
-        await asyncio.Event().wait()
+# Comando /start
+@bot.on_message(filters.command("start"))
+async def start_command(bot, message: Message):
+    await message.reply_text("👋 Olá! Envie um vídeo ou documento .mp4 e eu vou gerar um link direto pra você.")
 
-# Iniciar o bot em uma thread separada
-def iniciar_thread_bot():
-    asyncio.run(start_bot())
+# Manipula vídeos e documentos enviados
+@bot.on_message(filters.video | (filters.document & (filters.private | filters.group)))
+async def handle_video(bot, message: Message):
+    media = message.video or message.document
 
-if __name__ == "__main__":
-    threading.Thread(target=iniciar_thread_bot).start()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    if not media:
+        await message.reply("❗ Envie um vídeo ou documento .mp4.")
+        return
+
+    download_path = "./downloads"
+    os.makedirs(download_path, exist_ok=True)
+
+    file_path = await media.download(file_name=os.path.join(download_path, media.file_name or "video.mp4"))
+    file_name = os.path.basename(file_path)
+    base_url = "https://mp4rave.onrender.com/video/"
+    direct_link = f"{base_url}{quote(file_name)}"
+
+    await message.reply_text(
+        f"🎞️ <b>Nome:</b> <code>{file_name}</code>\n"
+        f"🔗 <b>Link Direto:</b> <a href='{direct_link}'>{direct_link}</a>",
+        parse_mode="html"
+    )
+
+# Inicia o bot
+bot.run()
