@@ -1,75 +1,75 @@
 from flask import Flask, send_file, abort
 from pyrogram import Client, filters
-from pyrogram.types import Message
 import os
 import json
 
-# ========== CONFIGURAÇÕES ==========
-API_ID = 21545360
-API_HASH = '25343abde47196a7e4accaf9e6b03437'
-BOT_TOKEN = '7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4'
+# Credenciais
+api_id = 21545360
+api_hash = "25343abde47196a7e4accaf9e6b03437"
+bot_token = "7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4"
 
-app = Flask(__name__)
-bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Iniciar bot
+app_bot = Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
-# ========== CACHE ==========
+# Cache JSON
 CACHE_FILE = "cache.json"
-DOWNLOAD_FOLDER = "downloads"
+if not os.path.exists(CACHE_FILE):
+    with open(CACHE_FILE, "w") as f:
+        json.dump({}, f)
 
-# Carrega o cache existente (se houver)
-if os.path.exists(CACHE_FILE):
+def load_cache():
     with open(CACHE_FILE, "r") as f:
-        cache = json.load(f)
-else:
-    cache = {}
+        return json.load(f)
 
-# Garante que a pasta de downloads exista
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+def save_cache(cache):
+    with open(CACHE_FILE, "w") as f:
+        json.dump(cache, f)
 
-# ========== BOT ==========
-@bot.on_message(filters.video | filters.document & filters.private | filters.group)
-async def handle_video(client, message: Message):
-    file = message.video or message.document
-    if not file:
-        return await message.reply("❌ Arquivo inválido.")
-    
-    file_id = file.file_id
-    file_name = file.file_name or f"{file_id}.mp4"
-    file_path = os.path.join(DOWNLOAD_FOLDER, file_name)
+# Bot recebe vídeo e gera link
+@app_bot.on_message(filters.video | filters.document)
+async def handle_video(client, message):
+    file_id = message.video.file_id if message.video else message.document.file_id
+    file_name = message.video.file_name if message.video else message.document.file_name
+    file_path = f"downloads/{file_id}.mp4"
 
-    # Evita download duplicado
-    if file_id not in cache:
-        await message.reply("⏬ Baixando o vídeo...")
-        await file.download(file_path)
+    if not os.path.exists("downloads"):
+        os.makedirs("downloads")
 
-        # Salva no cache
-        cache[file_id] = {
-            "file_name": file_name,
-            "file_path": file_path
-        }
-        with open(CACHE_FILE, "w") as f:
-            json.dump(cache, f)
+    cache = load_cache()
+    if file_id in cache:
+        await message.reply_text(f"🎥 {cache[file_id]['name']} ({cache[file_id]['size']})\n🔗 https://mp4rave.onrender.com/video/{file_id}")
+        return
 
-    # Cria o link camuflado
-    base_url = "https://mp4rave.onrender.com/video"
-    link = f"{base_url}/{file_id}"
-    size_mb = round(file.file_size / 1024 / 1024, 2)
+    msg = await message.reply_text("⬇️ Baixando vídeo...")
 
-    await message.reply(f"✅ Link gerado:\n📁 {file_name}\n📦 {size_mb} MB\n🔗 {link}")
+    file = await client.download_media(message, file_path)
+    file_size = os.path.getsize(file_path)
+    readable_size = f"{file_size / (1024 * 1024):.2f} MB"
 
-# ========== FLASK ==========
+    cache[file_id] = {
+        "path": file_path,
+        "name": file_name,
+        "size": readable_size
+    }
+    save_cache(cache)
+
+    await msg.edit_text(
+        f"✅ Vídeo salvo!\n\n🎬 Nome: {file_name}\n📦 Tamanho: {readable_size}\n🔗 Link: https://mp4rave.onrender.com/video/{file_id}"
+    )
+
+# Servidor Flask
+app = Flask(__name__)
+
 @app.route("/video/<file_id>")
 def serve_video(file_id):
-    if file_id not in cache:
-        return "❌ Arquivo não encontrado no cache.", 404
+    cache = load_cache()
+    if file_id in cache:
+        path = cache[file_id]["path"]
+        return send_file(path, mimetype="video/mp4")
+    return "❌ Arquivo não encontrado no cache.", 404
 
-    file_path = cache[file_id]["file_path"]
-    if not os.path.exists(file_path):
-        return "❌ Arquivo foi apagado do servidor.", 404
-
-    return send_file(file_path, as_attachment=True)
-
-# ========== INÍCIO ==========
+# Início
 if __name__ == "__main__":
-    bot.start()
-    app.run(host="0.0.0.0", port=10000)
+    import threading
+    threading.Thread(target=app.run, kwargs={"host": "0.0.0.0", "port": 10000}).start()
+    app_bot.run()
