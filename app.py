@@ -2,6 +2,7 @@ import os
 from flask import Flask, send_from_directory  
 from pyrogram import Client, filters  
 from pyrogram.types import Message  
+from pyrogram.enums import ParseMode
 from threading import Thread  
 from urllib.parse import quote  
   
@@ -48,11 +49,9 @@ async def handle_video(bot, message: Message):
         return  
   
     download_path = "./downloads"  
-    os.makedirs(download_path, exist_ok=True)
-
-    # ✅ Correção do erro: usando client.download_media()
-    file_path = await bot.download_media(message=message, file_name=os.path.join(download_path, media.file_name or "video.mp4"))
-    
+    os.makedirs(download_path, exist_ok=True)  
+  
+    file_path = await media.download(file_name=os.path.join(download_path, media.file_name or "video.mp4"))  
     file_name = os.path.basename(file_path)  
     base_url = "https://mp4rave.onrender.com/video/"  
     direct_link = f"{base_url}{quote(file_name)}"  
@@ -60,7 +59,7 @@ async def handle_video(bot, message: Message):
     await message.reply_text(  
         f"🎞️ <b>Nome:</b> <code>{file_name}</code>\n"  
         f"🔗 <b>Link Direto:</b> <a href='{direct_link}'>{direct_link}</a>",  
-        parse_mode="html"  
+        parse_mode=ParseMode.HTML  
     )  
   
 # Inicia o bot  
