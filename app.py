@@ -1,98 +1,75 @@
-import os
-import json
-from flask import Flask, send_from_directory
+from flask import Flask, send_file, abort
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from threading import Thread
-from urllib.parse import quote
+import os
+import json
 
-# Configurações do Telegram
+# ========== CONFIGURAÇÕES ==========
 API_ID = 21545360
-API_HASH = "25343abde47196a7e4accaf9e6b03437"
-BOT_TOKEN = "7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4"
+API_HASH = '25343abde47196a7e4accaf9e6b03437'
+BOT_TOKEN = '7669410935:AAFjxaQ7HAgodiX78xwBPZI__yLy0OC1hB4'
 
-# Caminhos
-DOWNLOAD_DIR = "./downloads"
+app = Flask(__name__)
+bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# ========== CACHE ==========
 CACHE_FILE = "cache.json"
+DOWNLOAD_FOLDER = "downloads"
 
-# Garante que a pasta de downloads existe
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-# Carrega ou cria o cache
+# Carrega o cache existente (se houver)
 if os.path.exists(CACHE_FILE):
     with open(CACHE_FILE, "r") as f:
         cache = json.load(f)
 else:
     cache = {}
 
-# Salva o cache atualizado
-def save_cache():
-    with open(CACHE_FILE, "w") as f:
-        json.dump(cache, f)
+# Garante que a pasta de downloads exista
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-# Inicializa o bot e o app Flask
-bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-app = Flask(__name__)
+# ========== BOT ==========
+@bot.on_message(filters.video | filters.document & filters.private | filters.group)
+async def handle_video(client, message: Message):
+    file = message.video or message.document
+    if not file:
+        return await message.reply("❌ Arquivo inválido.")
+    
+    file_id = file.file_id
+    file_name = file.file_name or f"{file_id}.mp4"
+    file_path = os.path.join(DOWNLOAD_FOLDER, file_name)
 
-@app.route('/')
-def home():
-    return '✅ Bot está online com cache!'
+    # Evita download duplicado
+    if file_id not in cache:
+        await message.reply("⏬ Baixando o vídeo...")
+        await file.download(file_path)
 
-@app.route('/video/<path:filename>')
-def serve_video(filename):
-    if filename in cache:
-        return send_from_directory(DOWNLOAD_DIR, filename)
-    return "❌ Arquivo não encontrado no cache.", 404
+        # Salva no cache
+        cache[file_id] = {
+            "file_name": file_name,
+            "file_path": file_path
+        }
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f)
 
-# Flask rodando em thread
-def run():
-    app.run(host="0.0.0.0", port=8080)
+    # Cria o link camuflado
+    base_url = "https://mp4rave.onrender.com/video"
+    link = f"{base_url}/{file_id}"
+    size_mb = round(file.file_size / 1024 / 1024, 2)
 
-Thread(target=run).start()
+    await message.reply(f"✅ Link gerado:\n📁 {file_name}\n📦 {size_mb} MB\n🔗 {link}")
 
-# /start
-@bot.on_message(filters.command("start"))
-async def start_command(bot, message: Message):
-    await message.reply_text(
-        "👋 Olá! Envie um vídeo ou documento .mp4 e eu vou gerar um link direto pra você."
-    )
+# ========== FLASK ==========
+@app.route("/video/<file_id>")
+def serve_video(file_id):
+    if file_id not in cache:
+        return "❌ Arquivo não encontrado no cache.", 404
 
-# Envio de vídeo ou documento
-@bot.on_message(filters.video | (filters.document & (filters.private | filters.group)))
-async def handle_video(bot, message: Message):
-    media = message.video or message.document
+    file_path = cache[file_id]["file_path"]
+    if not os.path.exists(file_path):
+        return "❌ Arquivo foi apagado do servidor.", 404
 
-    if not media:
-        await message.reply("❗ Envie um vídeo ou documento .mp4.")
-        return
+    return send_file(file_path, as_attachment=True)
 
-    filename = media.file_name or "video.mp4"
-
-    if filename in cache:
-        # Arquivo já está no cache, só retorna o link
-        direct_link = f"https://mp4rave.onrender.com/video/{quote(filename)}"
-        await message.reply_text(
-            f"🎞️ <b>Nome:</b> <code>{filename}</code>\n"
-            f"🔗 <b>Link Direto:</b> <a href='{direct_link}'>{direct_link}</a>",
-            parse_mode="html"
-        )
-        return
-
-    # Faz o download
-    file_path = await media.download(file_name=os.path.join(DOWNLOAD_DIR, filename))
-    filename = os.path.basename(file_path)
-
-    # Atualiza cache
-    cache[filename] = filename
-    save_cache()
-
-    # Envia link
-    direct_link = f"https://mp4rave.onrender.com/video/{quote(filename)}"
-    await message.reply_text(
-        f"🎞️ <b>Nome:</b> <code>{filename}</code>\n"
-        f"🔗 <b>Link Direto:</b> <a href='{direct_link}'>{direct_link}</a>",
-        parse_mode="html"
-    )
-
-# Inicia o bot
-bot.run()
+# ========== INÍCIO ==========
+if __name__ == "__main__":
+    bot.start()
+    app.run(host="0.0.0.0", port=10000)
