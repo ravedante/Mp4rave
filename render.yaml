@@ -1,8 +1,8 @@
 services:
   - type: web
-    name: mp4rave
+    name: telegram-video-bot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     plan: free
-    autoDeploy: true
+    region: oregon
